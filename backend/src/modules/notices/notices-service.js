@@ -15,11 +15,14 @@ const {
 } = require("./notices-repository");
 
 const fetchNoticeRecipients = async () => {
-  const recipients = await getNoticeRecipientList();
-  if (!Array.isArray(recipients) || recipients.length <= 0) {
-    throw new ApiError(404, "Recipients not found");
+  try {
+    const recipients = await getNoticeRecipientList();
+    // Always return an array, even if empty
+    return Array.isArray(recipients) ? recipients : [];
+  } catch (err) {
+    console.error("Error in fetchNoticeRecipients:", err);
+    return []; // Safe fallback
   }
-  return recipients;
 };
 
 const processGetNoticeRecipients = async () => {

@@ -125,45 +125,51 @@ const updateNoticeById = async (payload) => {
 
 const getNoticeRecipientList = async () => {
   try {
-    const noticeRecipientTypesQuery = "SELECT * FROM notice_recipient_types";
-    const { rows: noticeRecipientTypes } = await db.query(
-      noticeRecipientTypesQuery
-    );
+    const { rows: types } = await db.query("SELECT * FROM notice_recipient_types");
+    if (!types?.length) return [];
 
-    if (noticeRecipientTypes.length <= 0) {
-      return [];
-    }
+    const recipients = await Promise.all(
+      types.map(async (t) => {
+        // Safe role fetch
+        const { rows: roleRows } = await db.query("SELECT name FROM roles WHERE id = $1", [t.role_id]);
+        const roleName = roleRows?.[0]?.name || "Unknown Role";
 
-    const recipientPromises = noticeRecipientTypes.map(
-      async (recipientType) => {
-        const {
-          id,
-          role_id,
-          primary_dependent_name,
-          primary_dependent_select,
-        } = recipientType;
+        // Safe dependent fetch
+        let dependents = [];
+        if (t.primary_dependent_select) {
+          try {
+            const { rows } = await db.query(t.primary_dependent_select);
+            dependents = rows || [];
+          } catch (err) {
+            console.error(`Failed to execute primary_dependent_select for role ${t.role_id}:`, err);
+            dependents = [];
+          }
+        }
 
-        const selectRoleQuery = `SELECT name FROM roles WHERE id = $1`;
-        const { rows } = await db.query(selectRoleQuery, [role_id]);
-        const recipient = { id, roleId: role_id, name: rows[0].name };
-
-        const { rows: dependentRows } = primary_dependent_select
-          ? await db.query(primary_dependent_select)
-          : await Promise.resolve({ rows: [] });
-
-        recipient.primaryDependents = {
-          name: primary_dependent_name,
-          list: dependentRows,
+        return {
+          id: t.id,
+          roleId: t.role_id,
+          name: roleName,
+          primaryDependents: {
+            name: t.primary_dependent_name || "",
+            list: dependents,
+          },
         };
-
-        return recipient;
-      }
+      })
     );
 
-    const result = await Promise.all(recipientPromises);
-    return result;
-  } catch (error) {
-    throw error;
+    // Ensure uniqueness by roleId
+    const uniqueRecipientsMap = new Map();
+    recipients.forEach((r) => {
+      if (!uniqueRecipientsMap.has(r.roleId)) {
+        uniqueRecipientsMap.set(r.roleId, r);
+      }
+    });
+
+    return Array.from(uniqueRecipientsMap.values());
+  } catch (err) {
+    console.error("Failed to fetch notice recipient list:", err);
+    return [];
   }
 };
 
